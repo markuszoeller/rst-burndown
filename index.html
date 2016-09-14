@@ -30,7 +30,8 @@
   }
 </style>
 <body>
-  <h1>Nova API Ref Sprint Burndown</h1>
+  <h1>Nova Config Options Doc Sprint Burndown</h1>
+  <p>see <a href="https://wiki.openstack.org/wiki/ConfigOptionsConsistency">OpenStack wiki</a> for details</p>
 <script src="http://d3js.org/d3.v3.js"></script>
 <script language="javascript">
   var margin = {top: 20, right: 40, bottom: 30, left: 50},
@@ -154,8 +155,9 @@
           return table;
 	}
       // render the table(s)
-      tabulate(data, ['filename', 'needs:method_verification', 'needs:parameter_verification',
-                      'needs:example_verification', 'needs:body_verification']);
+      tabulate(data, ['filename', 'needs:fix_opt_description', 'needs:check_deprecation_status',
+                      'needs:check_opt_group_and_type', 'needs:fix_opt_description_indentation',
+                      'needs:fix_opt_registration_consistency']);
   });
 </script>
 

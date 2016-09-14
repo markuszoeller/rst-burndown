@@ -14,18 +14,43 @@ import re
 import requests
 from requests.auth import HTTPDigestAuth
 
-TOP = 'nova/api-ref/source'
+
+config = ConfigParser.ConfigParser()
+config.read('config.ini')
+
+HEADLINE_FORMAT = "%-40s %12s %12s %12s %12s %12s\n"
+HEADLINE_TITLES = ("File Name", "Description", "Deprecation", "Group/Type",
+                   "Indentation", "Consistency")
+
+# The format string for the special comments
+COMMENT_FMT = "# %s\n"
+
+# The comments pattern in Gerrit changes ('-' = the line got removed)
+COMMENT_DIFF_REGEX = '-# needs:(.*)'
+
+# The files to check for the special comments
+FILE_REGEX = "%s/*.py"
+
+# The file patterns in Gerrit changes
+FILE_DIFF_REGEX = '--- a/nova/conf/(.*.py)$'
+
+TOP = 'nova/nova/conf'
 
 PROJECT_SITE = "https://review.openstack.org/changes/"
 DIFF_QUERY = "%s/revisions/current/patch"
-QUERY = "q=project:openstack/nova+file:^api-ref/source/.*.inc+NOT+age:7d"
+QUERY = "q=project:openstack/nova+file:^nova/conf/.*.py+NOT+age:7d"
 ATTRS = ("&o=CURRENT_REVISION&o=ALL_COMMITS&o=ALL_FILES&o=LABELS"
          "&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS")
 URL = "%s?%s%s" % (PROJECT_SITE, QUERY, ATTRS)
 DIFF_URL = PROJECT_SITE + DIFF_QUERY
 
-PHASES = ['needs:method_verification', 'needs:parameter_verification',
-          'needs:example_verification', 'needs:body_verification']
+PHASES = [
+    'needs:fix_opt_description',
+    'needs:check_deprecation_status',
+    'needs:check_opt_group_and_type',
+    'needs:fix_opt_description_indentation',
+    'needs:fix_opt_registration_consistency',
+    ]
 
 counts = collections.OrderedDict()
 for phase in PHASES:
@@ -33,6 +58,8 @@ for phase in PHASES:
 counts['done'] = []
 
 files = []
+
+
 
 
 def _parse_content(resp, debug=False):
@@ -52,12 +79,8 @@ def _parse_content(resp, debug=False):
 
 
 def fetch_data(url, debug=False):
-    config = ConfigParser.ConfigParser()
-    config.read('config.ini')
-    user = config.get('default', 'user')
-    password = config.get('default', 'password')
-    auth = HTTPDigestAuth(user, password)
-    resp = requests.get(url, auth=auth)
+    # read access doesn't need authentication
+    resp = requests.get(url)
     return _parse_content(resp, debug)
 
 
@@ -66,10 +89,10 @@ def _http_process(change):
     files = []
     fname = None
     for line in diff.split('\n'):
-        m = re.match('--- a/api-ref/source/(.*.inc)$', line)
+        m = re.match(FILE_DIFF_REGEX, line)
         if m:
             fname = m.group(1)
-        m = re.match('-.. needs:(.*)', line)
+        m = re.match(COMMENT_DIFF_REGEX, line)
         if m:
             tag = {'number': change['number'],
                    'filename': fname,
@@ -106,13 +129,13 @@ def update_review_list(files, updated):
             fdata[what] = update['number']
 
 
-for fname in sorted(glob.glob("%s/*.inc" % TOP)):
+for fname in sorted(glob.glob(FILE_REGEX % TOP)):
     with open(fname) as f:
         fdata = {'filename': os.path.basename(fname)}
         content = f.readlines()
         done = True
         for key in PHASES:
-            if ".. %s\n" % key in content:
+            if COMMENT_FMT % key in content:
                 fdata[key] = "TODO"
                 done = False
                 counts[key].append(fname)
@@ -125,25 +148,36 @@ for fname in sorted(glob.glob("%s/*.inc" % TOP)):
 relevant = gather_reviews()
 update_review_list(files, relevant)
 
+if not os.path.exists('data.csv'):
+    with open("data.csv", "a") as f:
+        f.write("%s,%s,%s,%s,%s,%s\n" % (
+            'date',
+            PHASES[0],
+            PHASES[1],
+            PHASES[2],
+            PHASES[3],
+            PHASES[4]))
 
 with open("data.csv", "a") as f:
-    f.write("%d,%d,%d,%d,%d\n" % (
+    f.write("%d,%d,%d,%d,%d,%d\n" % (
         int(time.time()),
-        len(counts['needs:method_verification']),
-        len(counts['needs:parameter_verification']),
-        len(counts['needs:example_verification']),
-        len(counts['needs:body_verification'])))
+        len(counts[PHASES[0]]),
+        len(counts[PHASES[1]]),
+        len(counts[PHASES[2]]),
+        len(counts[PHASES[3]]),
+        len(counts[PHASES[4]])))
 
 
 with open("data.json", "w") as f:
     f.write(json.dumps(files))
 
 with open("data.txt", "w") as f:
-    FORMAT = "%-40s %10s %10s %10s %10s\n"
-    f.write(FORMAT % ("File Name", "Method", "Param", "Example", "Body"))
+    f.write(HEADLINE_FORMAT % HEADLINE_TITLES)
     for fdata in files:
-        f.write((FORMAT % (fdata['filename'],
-                           fdata['needs:method_verification'],
-                           fdata['needs:parameter_verification'],
-                           fdata['needs:example_verification'],
-                           fdata['needs:body_verification'])).encode('utf8'))
+        f.write((HEADLINE_FORMAT % (
+            fdata['filename'],
+            fdata[PHASES[0]],
+            fdata[PHASES[1]],
+            fdata[PHASES[2]],
+            fdata[PHASES[3]],
+            fdata[PHASES[4]])).encode('utf8'))
